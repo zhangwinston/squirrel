@@ -68,18 +68,41 @@ final class SquirrelTheme {
   private var fonts = [NSFont]()
   private var labelFonts = [NSFont]()
   private var commentFonts = [NSFont]()
+  private var fontSize: CGFloat?
+  private var labelFontSize: CGFloat?
+  private var commentFontSize: CGFloat?
 
   private var candidateTemplate = "[label]. [candidate] [comment]"
   var statusMessageType: StatusMessageType = .mix
 
+  private var defaultFont: NSFont {
+    if let size = fontSize {
+      Self.defaultFont.withSize(size)
+    } else {
+      Self.defaultFont
+    }
+  }
+
   var font: NSFont {
-    return combineFonts(fonts) ?? Self.defaultFont
+    return combineFonts(fonts, size: fontSize) ?? defaultFont
   }
-  var labelFont: NSFont? {
-    return combineFonts(labelFonts)
+  var labelFont: NSFont {
+    if let font = combineFonts(labelFonts, size: labelFontSize ?? fontSize) {
+      return font
+    } else if let size = labelFontSize {
+      return self.font.withSize(size)
+    } else {
+      return self.font
+    }
   }
-  var commentFont: NSFont? {
-    return combineFonts(commentFonts)
+  var commentFont: NSFont {
+    if let font = combineFonts(commentFonts, size: commentFontSize ?? fontSize) {
+      return font
+    } else if let size = commentFontSize {
+      return self.font.withSize(size)
+    } else {
+      return self.font
+    }
   }
   var attrs: [NSAttributedString.Key: Any] {
     [.foregroundColor: candidateTextColor,
@@ -93,23 +116,23 @@ final class SquirrelTheme {
   }
   var labelAttrs: [NSAttributedString.Key: Any] {
     return [.foregroundColor: candidateLabelColor ?? blendColor(foregroundColor: self.candidateTextColor, backgroundColor: self.backgroundColor),
-            .font: labelFont ?? font,
-            .baselineOffset: baseOffset + (labelFont != nil && !vertical ? (font.pointSize - labelFont!.pointSize) / 2 : 0)]
+            .font: labelFont,
+            .baselineOffset: baseOffset + (!vertical ? (font.pointSize - labelFont.pointSize) / 2 : 0)]
   }
   var labelHighlightedAttrs: [NSAttributedString.Key: Any] {
     return [.foregroundColor: highlightedCandidateLabelColor ?? blendColor(foregroundColor: highlightedCandidateTextColor, backgroundColor: highlightedBackColor),
-            .font: labelFont ?? font,
-            .baselineOffset: baseOffset + (labelFont != nil && !vertical ? (font.pointSize - labelFont!.pointSize) / 2 : 0)]
+            .font: labelFont,
+            .baselineOffset: baseOffset + (!vertical ? (font.pointSize - labelFont.pointSize) / 2 : 0)]
   }
   var commentAttrs: [NSAttributedString.Key: Any] {
     return [.foregroundColor: commentTextColor ?? candidateTextColor,
-            .font: commentFont ?? font,
-            .baselineOffset: baseOffset + (commentFont != nil && !vertical ? (font.pointSize - commentFont!.pointSize) / 2 : 0)]
+            .font: commentFont,
+            .baselineOffset: baseOffset + (!vertical ? (font.pointSize - commentFont.pointSize) / 2 : 0)]
   }
   var commentHighlightedAttrs: [NSAttributedString.Key: Any] {
     return [.foregroundColor: highlightedCommentTextColor ?? highlightedCandidateTextColor,
-            .font: commentFont ?? font,
-            .baselineOffset: baseOffset + (commentFont != nil && !vertical ? (font.pointSize - commentFont!.pointSize) / 2 : 0)]
+            .font: commentFont,
+            .baselineOffset: baseOffset + (!vertical ? (font.pointSize - commentFont.pointSize) / 2 : 0)]
   }
   var preeditAttrs: [NSAttributedString.Key: Any] {
     [.foregroundColor: textColor,
@@ -166,8 +189,8 @@ final class SquirrelTheme {
   }
 
   func load(config: SquirrelConfig, dark: Bool) {
-    linear = config.updateCandidateListLayout(prefix: "style")
-    vertical = config.updateTextOrientation(prefix: "style")
+    linear ?= config.getString("style/candidate_list_layout").map { $0 == "linear" }
+    vertical ?= config.getString("style/text_orientation").map { $0 == "vertical" }
     inlinePreedit ?= config.getBool("style/inline_preedit")
     inlineCandidate ?= config.getBool("style/inline_candidate")
     translucency ?= config.getBool("style/translucency")
@@ -219,6 +242,8 @@ final class SquirrelTheme {
       // the following per-color-scheme configurations, if exist, will
       // override configurations with the same name under the global 'style'
       // section
+      linear ?= config.getString("\(prefix)/candidate_list_layout").map { $0 == "linear" }
+      vertical ?= config.getString("\(prefix)/text_orientation").map { $0 == "vertical" }
       inlinePreedit ?= config.getBool("\(prefix)/inline_preedit")
       inlineCandidate ?= config.getBool("\(prefix)/inline_candidate")
       translucency ?= config.getBool("\(prefix)/translucency")
@@ -244,48 +269,48 @@ final class SquirrelTheme {
     } else {
       native = true
     }
-    if let name = fontName {
-      fonts = decodeFonts(from: name, size: fontSize)
-    }
-    if let name = labelFontName ?? fontName {
-      labelFonts = decodeFonts(from: name, size: labelFontSize ?? fontSize)
-    }
-    if let name = commentFontName ?? fontName {
-      commentFonts = decodeFonts(from: name, size: commentFontSize ?? fontSize)
-    }
+
+    fonts = decodeFonts(from: fontName)
+    self.fontSize = fontSize
+    labelFonts = decodeFonts(from: labelFontName ?? fontName)
+    self.labelFontSize = labelFontSize
+    commentFonts = decodeFonts(from: commentFontName ?? fontName)
+    self.commentFontSize = commentFontSize
   }
 }
 
 private extension SquirrelTheme {
-  func combineFonts(_ fonts: [NSFont]) -> NSFont? {
+  func combineFonts(_ fonts: [NSFont], size: CGFloat?) -> NSFont? {
     if fonts.count == 0 { return nil }
-    if fonts.count == 1 { return fonts[0] }
+    if fonts.count == 1 {
+      if let size = size {
+        return fonts[0].withSize(size)
+      } else {
+        return fonts[0]
+      }
+    }
     let attribute = [NSFontDescriptor.AttributeName.cascadeList: fonts[1...].map { $0.fontDescriptor } ]
     let fontDescriptor = fonts[0].fontDescriptor.addingAttributes(attribute)
-    return NSFont.init(descriptor: fontDescriptor, size: fonts[0].pointSize)
+    return NSFont.init(descriptor: fontDescriptor, size: size ?? fonts[0].pointSize)
   }
 
-  func decodeFonts(from fontString: String, size: CGFloat?) -> [NSFont] {
+  func decodeFonts(from fontString: String?) -> [NSFont] {
+    guard let fontString = fontString else { return [] }
     var seenFontFamilies = Set<String>()
     let fontStrings = fontString.split(separator: ",")
     var fonts = [NSFont]()
     for string in fontStrings {
       let trimedString = string.trimmingCharacters(in: .whitespaces)
-      if let fontFamilyName = trimedString.split(separator: "-").first.map({String($0)}) {
-        if seenFontFamilies.contains(fontFamilyName) {
-          continue
-        } else {
-          seenFontFamilies.insert(fontFamilyName)
-        }
+      let familyName = if let firstPart = trimedString.split(separator: "-").first {
+        String(firstPart)
       } else {
-        if seenFontFamilies.contains(trimedString) {
-          continue
-        } else {
-          seenFontFamilies.insert(trimedString)
-        }
+        trimedString
       }
-      if let validFont = NSFont(name: String(trimedString), size: size ?? Self.defaultFontSize) {
-        fonts.append(validFont)
+      if !seenFontFamilies.contains(familyName) {
+        seenFontFamilies.insert(familyName)
+        if let validFont = NSFont(name: trimedString, size: Self.defaultFontSize) {
+          fonts.append(validFont)
+        }
       }
     }
     return fonts
